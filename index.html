@@ -1,0 +1,1137 @@
+<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><meta name='theme-color' content='#14161b'><title>Paper Piano</title><style>body{margin:0;background:#14161b}#pp-app{margin:0 auto}</style></head><body>
+<div id="pp-app">
+<style>
+#pp-app { --bg:#14161b; --panel:#1d2027; --line:#2e3440; --text:#e9ecf1; --muted:#9aa3b2;
+  --accent:#5ad19a; --warn:#f2b84b; --err:#ff7a7a;
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text);
+  background: var(--bg); border-radius: 12px; padding: 14px; max-width: 1000px; box-sizing: border-box;
+  -webkit-text-size-adjust: 100%; }
+#pp-app * { box-sizing: border-box; }
+#pp-app .pp-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-bottom: 10px; }
+#pp-app .pp-title { font-weight: 700; font-size: 17px; white-space: nowrap; }
+#pp-app #pp-range { color: var(--muted); font-weight: 500; font-size: 13px; margin-left: 6px; }
+#pp-app #pp-status { flex: 1 1 320px; color: var(--muted); min-height: 1.45em; }
+#pp-app #pp-status.ok { color: var(--accent); }
+#pp-app #pp-status.warn { color: var(--warn); }
+#pp-app #pp-status.err { color: var(--err); }
+#pp-app .pp-controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 10px; }
+#pp-app button { background: #2a2f3a; color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 14px; font: inherit; cursor: pointer; min-height: 40px; }
+#pp-app button.pp-primary { background: var(--accent); color: #0b1a12; border-color: transparent; font-weight: 650; }
+#pp-app button:disabled { opacity: .45; cursor: default; }
+#pp-app label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+#pp-app select { background: #2a2f3a; color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+  padding: 5px 6px; font: inherit; font-size: 13px; max-width: 230px; min-height: 34px; }
+#pp-app input[type=range] { accent-color: var(--accent); width: 110px; }
+#pp-app output { min-width: 44px; color: var(--text); font-variant-numeric: tabular-nums; }
+#pp-app details { margin-bottom: 10px; }
+#pp-app summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0; user-select: none; }
+#pp-app .pp-grid { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding-top: 6px; }
+#pp-app .pp-stage { position: relative; background: #0c0d10; border: 1px solid var(--line); border-radius: 10px;
+  overflow: hidden; min-height: 220px; }
+#pp-app video { display: block; width: 100%; height: auto; }
+#pp-app canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; cursor: crosshair; }
+#pp-app button, #pp-app select, #pp-app summary, #pp-app canvas { touch-action: manipulation; }
+#pp-app .pp-placeholder { position: absolute; left: 0; top: 0; right: 0; bottom: 0; display: flex;
+  align-items: center; justify-content: center; color: var(--muted); text-align: center; padding: 20px; }
+#pp-app .pp-meter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0;
+  font-size: 13px; color: var(--muted); }
+#pp-app .pp-meter { position: relative; flex: 0 1 240px; min-width: 120px; height: 10px; background: #2a2f3a;
+  border-radius: 5px; overflow: hidden; }
+#pp-app #pp-meter-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--accent); }
+#pp-app #pp-meter-th { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--warn); left: 100%; }
+#pp-app #pp-last { color: var(--text); font-weight: 650; min-width: 90px; }
+#pp-app #pp-last.pp-hint { color: var(--muted); font-weight: 400; }
+#pp-app #pp-info { margin-left: auto; font-size: 12px; }
+#pp-app .pp-help { color: var(--muted); font-size: 12.5px; }
+#pp-app .pp-help b { color: var(--text); font-weight: 600; }
+#pp-app .pp-help ul { margin: 6px 0 0; padding-left: 18px; }
+@media (max-width: 640px) {
+  #pp-app { padding: 10px; border-radius: 0; font-size: 15px; }
+  #pp-app select, #pp-app button { font-size: 16px; } /* 16px stops iPhones zooming in on tap */
+  #pp-app .pp-controls button { flex: 1 1 auto; }
+  #pp-app .pp-grid label { width: 100%; justify-content: space-between; }
+  #pp-app .pp-grid input[type=range] { flex: 1; width: auto; }
+  #pp-app .pp-grid select { max-width: 62%; }
+  #pp-app #pp-info { margin-left: 0; width: 100%; }
+}
+</style>
+<div class="pp-head">
+  <div class="pp-title">🎹 Paper Piano<span id="pp-range"></span></div>
+  <div id="pp-status">Press <b>Start</b>, then allow the camera and microphone.</div>
+</div>
+<div class="pp-controls">
+  <button id="pp-start" class="pp-primary">Start camera &amp; mic</button>
+  <button id="pp-calib" disabled>Calibrate</button>
+  <label title="With a loudspeaker the mic hears the piano too, so notes are kept short and echoes are ignored.">Sound
+    <select id="pp-sound">
+      <option value="speaker" selected>Speaker</option>
+      <option value="headphones">Headphones</option>
+    </select></label>
+</div>
+<details id="pp-settings">
+  <summary>Settings</summary>
+  <div class="pp-grid">
+    <label>Trigger
+      <select id="pp-mode">
+        <option value="mic" selected>Mic tap + camera (recommended)</option>
+        <option value="cam">Camera only (experimental)</option>
+      </select></label>
+    <label>Fingers
+      <select id="pp-fingers">
+        <option value="all" selected>All fingers</option>
+        <option value="index">Index fingers only</option>
+      </select></label>
+    <label title="Mic mode: how quiet a tap can be. Camera mode: how small a dip can be.">Sensitivity
+      <input type="range" id="pp-sens" min="1" max="10" step="1" value="6"><output id="pp-sens-v">6</output></label>
+    <label title="How long to wait after hearing a tap for the camera to catch up. Higher = more accurate, lower = less lag.">Sync delay
+      <input type="range" id="pp-sync" min="0" max="200" step="10" value="60"><output id="pp-sync-v">60 ms</output></label>
+    <label>Volume <input type="range" id="pp-vol" min="0" max="1" step="0.05" value="0.8"></label>
+    <label>Camera <select id="pp-cam" disabled><option>—</option></select></label>
+    <label>Mic <select id="pp-mic" disabled><option>—</option></select></label>
+  </div>
+</details>
+<div class="pp-stage">
+  <video id="pp-video" playsinline muted></video>
+  <canvas id="pp-overlay"></canvas>
+  <div class="pp-placeholder" id="pp-placeholder">Camera preview appears here.<br>Point the camera down at your printed keyboard so all four numbered dots are visible.</div>
+</div>
+<div class="pp-meter-row">
+  <span>Mic</span>
+  <div class="pp-meter" title="Green bar = loudness. Orange line = how loud a tap must be."><div id="pp-meter-fill"></div><div id="pp-meter-th"></div></div>
+  <span id="pp-last"></span>
+  <span id="pp-info"></span>
+</div>
+<details id="pp-help" class="pp-help">
+  <summary>Tips</summary>
+  <ul>
+    <li><b>Play:</b> tap a key firmly enough to make a small knock – the mic hears <i>when</i>, the camera sees <i>where</i>.</li>
+    <li><b>Wrong key?</b> Raise the sync delay in Settings, or choose “Index fingers only”.</li>
+    <li><b>Taps missed?</b> Raise sensitivity (the meter flashes orange when a tap is heard). <b>Random notes?</b> Lower it.</li>
+    <li><b>Phone:</b> turn on rotation lock, keep the phone and paper still, and turn the volume up (iPhone: check the silent switch). Wired earphones + “Headphones” give longer notes.</li>
+  </ul>
+</details>
+<script>
+(function () {
+'use strict';
+const LAYOUT = {"first": "C4", "last": "C6", "paper": "A4", "pageW": 297.0, "pageH": 210.0, "pageX": 13.5, "pageY": 42.0, "W": 270.0, "H": 120.0, "whiteW": 18.0, "blackH": 74.4, "markers": [[0.0, -10.0], [270.0, -10.0], [270.0, 130.0], [0.0, 130.0]], "keys": [{"midi": 60, "name": "C4", "black": false, "x0": 0.0, "x1": 18.0, "y0": 0.0, "y1": 120.0}, {"midi": 61, "name": "C#4", "black": true, "x0": 12.78, "x1": 23.22, "y0": 0.0, "y1": 74.4}, {"midi": 62, "name": "D4", "black": false, "x0": 18.0, "x1": 36.0, "y0": 0.0, "y1": 120.0}, {"midi": 63, "name": "D#4", "black": true, "x0": 30.78, "x1": 41.22, "y0": 0.0, "y1": 74.4}, {"midi": 64, "name": "E4", "black": false, "x0": 36.0, "x1": 54.0, "y0": 0.0, "y1": 120.0}, {"midi": 65, "name": "F4", "black": false, "x0": 54.0, "x1": 72.0, "y0": 0.0, "y1": 120.0}, {"midi": 66, "name": "F#4", "black": true, "x0": 66.78, "x1": 77.22, "y0": 0.0, "y1": 74.4}, {"midi": 67, "name": "G4", "black": false, "x0": 72.0, "x1": 90.0, "y0": 0.0, "y1": 120.0}, {"midi": 68, "name": "G#4", "black": true, "x0": 84.78, "x1": 95.22, "y0": 0.0, "y1": 74.4}, {"midi": 69, "name": "A4", "black": false, "x0": 90.0, "x1": 108.0, "y0": 0.0, "y1": 120.0}, {"midi": 70, "name": "A#4", "black": true, "x0": 102.78, "x1": 113.22, "y0": 0.0, "y1": 74.4}, {"midi": 71, "name": "B4", "black": false, "x0": 108.0, "x1": 126.0, "y0": 0.0, "y1": 120.0}, {"midi": 72, "name": "C5", "black": false, "x0": 126.0, "x1": 144.0, "y0": 0.0, "y1": 120.0}, {"midi": 73, "name": "C#5", "black": true, "x0": 138.78, "x1": 149.22, "y0": 0.0, "y1": 74.4}, {"midi": 74, "name": "D5", "black": false, "x0": 144.0, "x1": 162.0, "y0": 0.0, "y1": 120.0}, {"midi": 75, "name": "D#5", "black": true, "x0": 156.78, "x1": 167.22, "y0": 0.0, "y1": 74.4}, {"midi": 76, "name": "E5", "black": false, "x0": 162.0, "x1": 180.0, "y0": 0.0, "y1": 120.0}, {"midi": 77, "name": "F5", "black": false, "x0": 180.0, "x1": 198.0, "y0": 0.0, "y1": 120.0}, {"midi": 78, "name": "F#5", "black": true, "x0": 192.78, "x1": 203.22, "y0": 0.0, "y1": 74.4}, {"midi": 79, "name": "G5", "black": false, "x0": 198.0, "x1": 216.0, "y0": 0.0, "y1": 120.0}, {"midi": 80, "name": "G#5", "black": true, "x0": 210.78, "x1": 221.22, "y0": 0.0, "y1": 74.4}, {"midi": 81, "name": "A5", "black": false, "x0": 216.0, "x1": 234.0, "y0": 0.0, "y1": 120.0}, {"midi": 82, "name": "A#5", "black": true, "x0": 228.78, "x1": 239.22, "y0": 0.0, "y1": 74.4}, {"midi": 83, "name": "B5", "black": false, "x0": 234.0, "x1": 252.0, "y0": 0.0, "y1": 120.0}, {"midi": 84, "name": "C6", "black": false, "x0": 252.0, "x1": 270.0, "y0": 0.0, "y1": 120.0}]};
+// ===========================================================================
+// core.js — pure logic with no DOM access (unit-tested on its own).
+// ===========================================================================
+
+// ---------- Geometry: homography (perspective transform) -------------------
+// A homography is a 3×3 matrix that maps points on one plane to another plane
+// as seen through a camera. Four point pairs are enough to define it.
+
+/** Solve A·x = b (n×n) with Gaussian elimination and partial pivoting. */
+function solveLinearSystem(A, b) {
+  const n = b.length;
+  const M = A.map((row, i) => row.slice().concat([b[i]]));
+  for (let col = 0; col < n; col++) {
+    let piv = col;
+    for (let r = col + 1; r < n; r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    if (Math.abs(M[piv][col]) < 1e-12) return null; // degenerate (e.g. 3 points in a line)
+    const tmp = M[col]; M[col] = M[piv]; M[piv] = tmp;
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const f = M[r][col] / M[col][col];
+      if (f === 0) continue;
+      for (let k = col; k <= n; k++) M[r][k] -= f * M[col][k];
+    }
+  }
+  return M.map((row, i) => row[n] / row[i]);
+}
+
+/** Homography mapping 4 source points onto 4 destination points.
+ *  Returns a flat matrix [h0..h8] (h8 = 1), or null if the points are degenerate. */
+function computeHomography(src, dst) {
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const x = src[i][0], y = src[i][1], u = dst[i][0], v = dst[i][1];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+  }
+  const h = solveLinearSystem(A, b);
+  return h ? h.concat([1]) : null;
+}
+
+function applyHomography(H, x, y) {
+  const w = H[6] * x + H[7] * y + H[8];
+  return [(H[0] * x + H[1] * y + H[2]) / w, (H[3] * x + H[4] * y + H[5]) / w];
+}
+
+/** True if the 4 points (in click order) form a convex quadrilateral —
+ *  catches corners clicked in the wrong order. */
+function isConvexQuad(pts) {
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = pts[i], b = pts[(i + 1) % 4], c = pts[(i + 2) % 4];
+    const cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+    if (Math.abs(cross) < 1e-6) return false;
+    const s = Math.sign(cross);
+    if (sign === 0) sign = s;
+    else if (s !== sign) return false;
+  }
+  return true;
+}
+
+/** Which key is at keyboard position (u, v) in millimetres?
+ *  Origin is the keyboard's top-left corner; black keys win where they overlap. */
+function keyAt(layout, u, v, tolMm) {
+  const tol = tolMm || 0;
+  if (u < -tol || u > layout.W + tol || v < -tol || v > layout.H + tol) return null;
+  const uu = Math.min(Math.max(u, 0), layout.W - 1e-6);
+  const vv = Math.min(Math.max(v, 0), layout.H);
+  let white = null;
+  for (const k of layout.keys) {
+    if (uu >= k.x0 && uu < k.x1 && vv >= k.y0 && vv <= k.y1) {
+      if (k.black) return k;
+      white = k;
+    }
+  }
+  return white;
+}
+
+// ---------- Microphone tap detector -----------------------------------------
+// Runs on the audio thread (inside an AudioWorklet), so it must not use
+// anything outside this class. It looks for sudden bursts of energy (onsets)
+// that rise well above a slowly-adapting estimate of the background noise.
+class TapDetectorCore {
+  constructor(sampleRate) {
+    this.sr = sampleRate;
+    const fc = 300; // high-pass cut-off in Hz: removes rumble and most voice "hum"
+    const rc = 1 / (2 * Math.PI * fc), dt = 1 / sampleRate;
+    this.a = rc / (rc + dt);
+    this.px = 0; this.py = 0;
+    this.n = 0; this.blocks = 0;
+    this.floorDb = -60;       // running background-noise level (dB)
+    this.thresholdDb = 14;    // a tap must be this many dB above the background
+    this.minDb = -65;         // ...and louder than this absolute level (dBFS)
+    this.refractory = 0.08;   // seconds: ignore the tail of the same tap
+    this.guardUntil = 0;      // briefly harder to trigger right after a note plays
+    this.guardDb = 10;
+    this.lastOnset = -1e9;
+    this.peakDb = -120;
+    this.warmupBlocks = Math.round((0.5 * sampleRate) / 128); // learn the room for ~0.5 s first
+    this.sustainBlocks = Math.round((0.15 * sampleRate) / 128); // louder for >150 ms = new background, not a tap
+    this.loudBlocks = 0;
+    this.hist = [-120, -120, -120, -120]; // levels of the last ~10 ms, to require a *sudden* jump
+    this.histIdx = 0;
+  }
+
+  configure(m) {
+    if (!m) return;
+    if (typeof m.thresholdDb === 'number') this.thresholdDb = m.thresholdDb;
+    if (typeof m.guardMs === 'number') this.guardUntil = this.n / this.sr + m.guardMs / 1000;
+  }
+
+  /** Feed one block of samples; returns a list of events ('onset' / 'level'). */
+  processBlock(ch) {
+    const events = [];
+    let e = 0;
+    for (let i = 0; i < ch.length; i++) {
+      const x = ch[i];
+      const y = this.a * (this.py + x - this.px); // first-order high-pass filter
+      this.px = x; this.py = y;
+      e += y * y;
+    }
+    e /= Math.max(1, ch.length);
+    this.n += ch.length;
+    this.blocks++;
+    const t = this.n / this.sr;
+    const db = 10 * Math.log10(e + 1e-12);
+    const th = this.thresholdDb + (t < this.guardUntil ? this.guardDb : 0);
+    let recentMin = Infinity;
+    for (let i = 0; i < this.hist.length; i++) if (this.hist[i] < recentMin) recentMin = this.hist[i];
+    if (this.blocks <= this.warmupBlocks) {
+      this.floorDb += (this.blocks === 1 ? 1 : 0.1) * (db - this.floorDb);
+    } else {
+      const sudden = db - recentMin > 0.6 * th; // a tap is a sharp jump, not a slow swell
+      if (db > this.floorDb + th && sudden && db > this.minDb && t - this.lastOnset > this.refractory) {
+        this.lastOnset = t;
+        events.push({ type: 'onset', t, db, strengthDb: db - this.floorDb });
+      }
+      // Track the background in the dB domain: fall quickly, rise slowly so short taps
+      // barely move it, but rise fast once a louder sound has lasted >150 ms (e.g. a fan).
+      this.loudBlocks = db > this.floorDb + 3 ? this.loudBlocks + 1 : 0;
+      const up = this.loudBlocks > this.sustainBlocks ? 0.03 : 0.002;
+      this.floorDb += (db > this.floorDb ? up : 0.03) * (db - this.floorDb);
+    }
+    this.hist[this.histIdx] = db;
+    this.histIdx = (this.histIdx + 1) % this.hist.length;
+    if (db > this.peakDb) this.peakDb = db;
+    if (this.blocks % 8 === 0) {
+      events.push({ type: 'level', db: this.peakDb, floorDb: this.floorDb, thDb: th });
+      this.peakDb = -120;
+    }
+    return events;
+  }
+}
+
+// ---------- Deciding which finger made the tap -------------------------------
+// Each fingertip "track" is a short history of samples:
+//   { t, x, y (image px), rx, ry (position relative to the palm, in hand-sizes),
+//     d (estimated depth of tip vs. its knuckle, in hand-sizes), scale, key }
+
+/** How much did this fingertip move between t0 and t1? (in hand-sizes) */
+function motionScore(samples, t0, t1, absWeight, depthWeight) {
+  const w = samples.filter((s) => s.t >= t0 && s.t <= t1);
+  const n = w.length;
+  if (n < 2) return 0;
+  // With enough frames, a 3-point moving average removes most landmark jitter.
+  const series = (get) => w.map((_, i) => {
+    if (n < 5) return get(w[i]);
+    const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
+    let sum = 0;
+    for (let k = a; k <= b; k++) sum += get(w[k]);
+    return sum / (b - a + 1);
+  });
+  const range = (arr) => Math.max.apply(null, arr) - Math.min.apply(null, arr);
+  const scale = w.reduce((acc, s) => acc + s.scale, 0) / n;
+  const rel = Math.hypot(range(series((s) => s.rx)), range(series((s) => s.ry)));       // finger vs. hand
+  const abs = Math.hypot(range(series((s) => s.x)), range(series((s) => s.y))) / scale;  // whole hand
+  return rel + absWeight * abs + depthWeight * range(series((s) => s.d));
+}
+
+/** Mic mode: a tap was heard at time tOn — which fingertip (over a key) moved most?
+ *  Returns { reason: 'ok' | 'no-finger-on-key' | 'no-movement', track, key, score }. */
+function pickTappedFinger(tracks, tOn, now, o) {
+  let best = null;
+  for (const tr of tracks) {
+    if (o.indexOnly && tr.finger !== 'index') continue;
+    const last = tr.samples[tr.samples.length - 1];
+    if (!last || now - last.t > o.staleMs || !last.key) continue;
+    const score = motionScore(tr.samples, tOn - o.lookbackMs, now, o.absWeight, o.depthWeight);
+    if (!best || score > best.score) best = { track: tr, key: last.key, score };
+  }
+  if (!best) return { reason: 'no-finger-on-key', track: null, key: null, score: 0 };
+  if (best.score < o.minScore) return { reason: 'no-movement', track: best.track, key: best.key, score: best.score };
+  return { reason: 'ok', track: best.track, key: best.key, score: best.score };
+}
+
+/** Camera-only mode (experimental): fire when a fingertip "dips" (moves away
+ *  from the camera relative to its knuckle) and then stops. Returns the key or null. */
+function camTapUpdate(tr, now, o) {
+  const s = tr.samples, n = s.length;
+  if (n < 3) return null;
+  const last = s[n - 1], prev = s[n - 2];
+  if (last.t !== now) return null; // finger not seen in this frame
+  const st = tr.cam || (tr.cam = { armed: true, lastFire: -1e9, dAtFire: 0 });
+  if (!st.armed && (last.d < st.dAtFire - o.rearm || now - st.lastFire > o.rearmTimeoutMs)) st.armed = true;
+  if (!st.armed || !last.key || now - st.lastFire < o.refractoryMs) return null;
+  let dMin = Infinity;
+  for (let i = n - 1; i >= 0 && now - s[i].t <= o.windowMs; i--) if (s[i].d < dMin) dMin = s[i].d;
+  const vel = (last.d - prev.d) / Math.max(0.001, (last.t - prev.t) / 1000);
+  if (last.d - dMin >= o.riseThreshold && vel <= o.stopVel) {
+    st.armed = false; st.lastFire = now; st.dAtFire = last.d;
+    return last.key;
+  }
+  return null;
+}
+
+// ---------- Calibration: snap a tap to the printed dot ------------------------
+// Fingers are imprecise on a phone screen, so a calibration tap is moved to the
+// centre of the nearest solid, roughly round dark blob (the printed dot).
+
+/** Otsu's method: the grey level that best splits a patch into dark and light. */
+function otsuThreshold(gray) {
+  const hist = new Float64Array(256);
+  for (let i = 0; i < gray.length; i++) hist[gray[i]]++;
+  let sum = 0;
+  for (let t = 0; t < 256; t++) sum += t * hist[t];
+  let sumB = 0, wB = 0, best = -1, th = 127;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (!wB) continue;
+    const wF = gray.length - wB;
+    if (!wF) break;
+    sumB += t * hist[t];
+    const diff = sumB / wB - (sum - sumB) / wF;
+    const between = wB * wF * diff * diff;
+    if (between > best) { best = between; th = t; }
+  }
+  return th;
+}
+
+/** Find the printed calibration dot near (cx, cy) in an 8-bit greyscale patch (w × h):
+ *  the largest solid, roughly round dark blob — text and numbers are far smaller.
+ *  Returns { x, y, area } in patch pixel coordinates, or null. */
+function findDot(gray, w, h, cx, cy, opts) {
+  const o = opts || {};
+  const n = w * h;
+  let mn = 255, mx = 0;
+  for (let i = 0; i < n; i++) { const g = gray[i]; if (g < mn) mn = g; if (g > mx) mx = g; }
+  if (mx - mn < (o.minContrast || 40)) return null; // nothing dark enough to be a dot
+  const th = otsuThreshold(gray);
+  const seen = new Uint8Array(n);
+  const stack = new Int32Array(n);
+  const maxDist = o.maxDist || 0.9 * Math.min(w, h) / 2;
+  let best = null;
+  for (let s = 0; s < n; s++) {
+    if (seen[s] || gray[s] > th) continue;
+    let sp = 0, area = 0, sx = 0, sy = 0, x0 = w, x1 = -1, y0 = h, y1 = -1, border = false;
+    stack[sp++] = s; seen[s] = 1;
+    while (sp > 0) { // flood-fill one connected dark region
+      const i = stack[--sp];
+      const x = i % w, y = (i - x) / w;
+      area++; sx += x; sy += y;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) border = true;
+      if (x > 0 && !seen[i - 1] && gray[i - 1] <= th) { seen[i - 1] = 1; stack[sp++] = i - 1; }
+      if (x < w - 1 && !seen[i + 1] && gray[i + 1] <= th) { seen[i + 1] = 1; stack[sp++] = i + 1; }
+      if (y > 0 && !seen[i - w] && gray[i - w] <= th) { seen[i - w] = 1; stack[sp++] = i - w; }
+      if (y < h - 1 && !seen[i + w] && gray[i + w] <= th) { seen[i + w] = 1; stack[sp++] = i + w; }
+    }
+    if (border || area < (o.minArea || Math.max(6, 0.006 * n))) continue; // cut off by the edge, or text/specks
+    const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+    if (Math.max(bw, bh) / Math.min(bw, bh) > 2.5) continue;    // too long: a line, key or the digit 1
+    if (area / (bw * bh) < 0.6) continue;                       // not solid: outlines and digits
+    if (o.expectArea && (area < 0.2 * o.expectArea || area > 5 * o.expectArea)) continue; // perspective changes size
+    const x = sx / area + 0.5, y = sy / area + 0.5;             // +0.5 = pixel centre
+    const d = Math.hypot(x - cx, y - cy);
+    if (d <= maxDist && (!best || area > best.area)) best = { x, y, area, d };
+  }
+  return best ? { x: best.x, y: best.y, area: best.area } : null;
+}
+
+/** With a loudspeaker, the mic hears our own notes. Ignore taps heard just after a note. */
+function isEchoOnset(tOnset, lastNoteAt, soundMode, windowMs) {
+  return soundMode === 'speaker' && tOnset - lastNoteAt >= 0 && tOnset - lastNoteAt < windowMs;
+}
+
+// ---------- Small helpers -----------------------------------------------------
+function micThresholdDb(sensitivity) { return 26 - 2 * sensitivity; }      // 1 → 24 dB … 10 → 6 dB
+function camRiseThreshold(sensitivity) { return 0.33 - 0.027 * sensitivity; } // 1 → 0.30 … 10 → 0.06
+function velocityFromStrength(strengthDb, thresholdDb) {
+  return Math.min(1, Math.max(0.35, 0.35 + (strengthDb - thresholdDb) / 25));
+}
+
+// Salamander piano samples exist every 3 semitones: C, D#, F#, A (A0 … C8).
+const SAMPLE_PITCH_CLASSES = { 0: 'C', 3: 'Ds', 6: 'Fs', 9: 'A' };
+function salamanderName(midi) { return SAMPLE_PITCH_CLASSES[midi % 12] + (Math.floor(midi / 12) - 1); }
+function sampleNotesFor(lo, hi) {
+  const out = [];
+  for (let m = Math.max(21, lo - 2); m <= Math.min(108, hi + 2); m++) if ((m % 12) in SAMPLE_PITCH_CLASSES) out.push(m);
+  return out;
+}
+function nearestSample(midi, available) {
+  let best = null;
+  for (const m of available) if (best === null || Math.abs(m - midi) < Math.abs(best - midi)) best = m;
+  return best;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    solveLinearSystem, computeHomography, applyHomography, isConvexQuad, keyAt, TapDetectorCore,
+    motionScore, pickTappedFinger, camTapUpdate, micThresholdDb, camRiseThreshold,
+    velocityFromStrength, salamanderName, sampleNotesFor, nearestSample,
+    otsuThreshold, findDot, isEchoOnset,
+  };
+}
+
+// ===========================================================================
+// ui.js — camera, microphone, hand tracking, drawing and sound (browser only).
+// ===========================================================================
+/* global google */
+
+// Tunable settings. If notes trigger wrongly, these are the numbers to tweak.
+// (They can also be changed live in DevTools: pick the output frame as the console
+// context, then e.g. paperPiano.config.MIC_MIN_SCORE = 0.08)
+const CONFIG = {
+  MEDIAPIPE_VERSIONS: ['0.10.35', '1.1.1'], // pinned so a library update can't break the app; tried in order
+  HAND_MODEL_URL: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+  SAMPLE_BASE_URL: 'https://tonejs.github.io/audio/salamander/', // grand-piano samples hosted by the Tone.js project
+  KEY_TOLERANCE_MM: 4,      // fingertips this close outside the keyboard still count
+  MIC_LOOKBACK_MS: 160,     // look this far before the tap sound for the finger that moved
+  MIC_MIN_SCORE: 0.10,      // minimum finger movement (in hand-sizes) to accept a tap; lower if real taps are rejected
+  ABS_MOTION_WEIGHT: 0.5,   // weight of whole-hand movement vs. finger-only movement
+  DEPTH_WEIGHT: 0.8,        // weight of the fingertip's estimated depth change (noisier, so < 1)
+  STALE_MS: 250,            // ignore fingers not seen for this long
+  SELF_GUARD_MS: 120,       // after a note, briefly make the mic harder to trigger
+  ECHO_WINDOW_MS: 250,      // speaker mode: ignore taps heard this soon after a note (it's our own sound)
+  SNAP_RADIUS: 0.05,        // calibration: search this fraction of the image around a tap for the printed dot
+  NOTE_LENGTH: { speaker: [0.25, 0.8], headphones: [1.0, 2.4] }, // [hold, fade-out end] in seconds
+  CAM_WINDOW_MS: 200,       // camera-only mode: time window for measuring a finger dip
+  CAM_STOP_VEL: 0.6,        // camera-only: dip has "landed" once depth speed falls below this
+  CAM_REARM: 0.05,          // camera-only: how far a finger must lift before it can fire again
+  CAM_REARM_TIMEOUT_MS: 1200,
+  CAM_REFRACTORY_MS: 180,
+};
+
+const FINGERS = [
+  { name: 'thumb', tip: 4, base: 2 },
+  { name: 'index', tip: 8, base: 5 },
+  { name: 'middle', tip: 12, base: 9 },
+  { name: 'ring', tip: 16, base: 13 },
+  { name: 'pinky', tip: 20, base: 17 },
+];
+
+const $ = (id) => document.getElementById(id);
+const els = {
+  root: $('pp-app'), start: $('pp-start'), calib: $('pp-calib'), sound: $('pp-sound'), settings: $('pp-settings'),
+  help: $('pp-help'), cam: $('pp-cam'), mic: $('pp-mic'), mode: $('pp-mode'), fingers: $('pp-fingers'),
+  sens: $('pp-sens'), sensV: $('pp-sens-v'), sync: $('pp-sync'), syncV: $('pp-sync-v'), vol: $('pp-vol'),
+  video: $('pp-video'), canvas: $('pp-overlay'), placeholder: $('pp-placeholder'), status: $('pp-status'),
+  meterFill: $('pp-meter-fill'), meterTh: $('pp-meter-th'), last: $('pp-last'), info: $('pp-info'), range: $('pp-range'),
+};
+const g2d = els.canvas.getContext('2d');
+const snapCanvas = document.createElement('canvas');
+const snapCtx = snapCanvas.getContext('2d', { willReadFrequently: true });
+
+const state = {
+  running: false, audioCtx: null, piano: null, detector: null, landmarker: null, mpVersion: null,
+  videoStream: null, micStream: null, micSource: null, micOk: false, wakeLock: null, wakeLockOk: null,
+  calibrating: false, clicks: [], snapped: [], dotArea: 0, H_img2kb: null, H_kb2img: null, keyPolys: null,
+  tracks: new Map(), hands: [], flashes: [], lastVideoTime: -1, lastNoteAt: -1e9,
+  fps: 0, fpsFrames: 0, fpsT0: 0, meterFlashUntil: 0,
+  mode: 'mic', indexOnly: false, sound: els.sound.value, sensitivity: +els.sens.value, syncMs: +els.sync.value,
+};
+
+const MIDI_LO = Math.min.apply(null, LAYOUT.keys.map((k) => k.midi));
+const MIDI_HI = Math.max.apply(null, LAYOUT.keys.map((k) => k.midi));
+const IS_TOUCH = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+els.range.textContent = LAYOUT.first + '–' + LAYOUT.last + ' · ' + LAYOUT.keys.length + ' keys';
+if (window.innerWidth > 700) { els.settings.open = true; els.help.open = true; } // phones: keep the video big
+
+// ---------- Small UI helpers -------------------------------------------------
+function resizeColab() {
+  try {
+    const out = window.google && google.colab && google.colab.output;
+    if (out && out.setIframeHeight) out.setIframeHeight(document.documentElement.scrollHeight, true);
+  } catch (e) { /* not running inside Colab */ }
+}
+function setStatus(msg, kind) {
+  els.status.textContent = msg;
+  els.status.className = kind || '';
+  resizeColab();
+}
+function showHint(msg) {
+  els.last.textContent = msg;
+  els.last.className = 'pp-hint';
+}
+function explainError(e) {
+  const name = (e && e.name) || '';
+  if (name === 'NotAllowedError') return 'Permission was blocked. Allow camera and microphone for this page (browser settings or the icon by the address bar), then press Start again.';
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No camera/microphone found. Plug one in (or pick another in Settings) and press Start again.';
+  if (name === 'NotReadableError') return 'The camera or mic is busy in another app (a call, the Camera app…). Close it and press Start again.';
+  return 'Something went wrong: ' + ((e && e.message) || e);
+}
+
+// ---------- Keep the screen awake (phones lock while you play on paper) ------------
+async function keepAwake() {
+  if (state.wakeLock || document.visibilityState !== 'visible') return;
+  try {
+    if (!('wakeLock' in navigator)) throw new Error('unsupported');
+    state.wakeLock = await navigator.wakeLock.request('screen');
+    state.wakeLock.addEventListener('release', () => { state.wakeLock = null; });
+    state.wakeLockOk = true;
+  } catch (e) {
+    state.wakeLockOk = false; // e.g. older browser, or running inside a Colab output box
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (!state.running || document.visibilityState !== 'visible') return;
+  keepAwake();
+  els.video.play().catch(() => {}); // phones pause the camera when you switch apps
+  if (state.audioCtx && state.audioCtx.state !== 'running') state.audioCtx.resume().catch(() => {});
+});
+els.root.addEventListener('pointerdown', () => { // phones can suspend audio; any tap wakes it
+  if (state.audioCtx && state.audioCtx.state !== 'running') state.audioCtx.resume().catch(() => {});
+});
+
+// ---------- Sound ----------------------------------------------------------------
+class PianoSound {
+  constructor(ctx) {
+    this.ctx = ctx;
+    this.master = ctx.createGain();
+    const comp = ctx.createDynamicsCompressor(); // stops overlapping notes from clipping
+    this.master.connect(comp);
+    comp.connect(ctx.destination);
+    this.buffers = new Map();
+  }
+  setVolume(v) { this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02); }
+  async loadSamples(lo, hi) {
+    await Promise.all(sampleNotesFor(lo, hi).map(async (m) => {
+      try {
+        const res = await fetch(CONFIG.SAMPLE_BASE_URL + salamanderName(m) + '.mp3');
+        if (!res.ok) return;
+        this.buffers.set(m, await this.ctx.decodeAudioData(await res.arrayBuffer()));
+      } catch (e) { /* that note will use the synth instead */ }
+    }));
+    return this.buffers.size;
+  }
+  play(midi, velocity, hold, end) {
+    const ctx = this.ctx, t = ctx.currentTime;
+    const vel = Math.min(1, Math.max(0.05, velocity));
+    const out = ctx.createGain();
+    out.connect(this.master);
+    const s = nearestSample(midi, this.buffers.keys());
+    if (s !== null && Math.abs(s - midi) <= 2) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.buffers.get(s);
+      src.playbackRate.value = Math.pow(2, (midi - s) / 12); // re-pitch the nearest sample
+      out.gain.setValueAtTime(vel, t);
+      out.gain.setValueAtTime(vel, t + hold);
+      out.gain.exponentialRampToValueAtTime(0.001, t + end); // paper has no key-release, so fade out
+      src.connect(out);
+      src.start(t);
+      src.stop(t + end + 0.1);
+      src.onended = () => out.disconnect();
+    } else {
+      const f = 440 * Math.pow(2, (midi - 69) / 12); // simple additive "piano-ish" synth
+      [[1, 1], [2, 0.5], [3, 0.25], [4, 0.12]].forEach(([mul, amp]) => {
+        const o = ctx.createOscillator(), gn = ctx.createGain();
+        o.frequency.value = f * mul;
+        gn.gain.setValueAtTime(0.0001, t);
+        gn.gain.exponentialRampToValueAtTime(0.25 * amp * vel, t + 0.006);
+        gn.gain.exponentialRampToValueAtTime(0.0001, t + Math.min(end, 0.4 + 1.4 / mul));
+        o.connect(gn);
+        gn.connect(out);
+        o.start(t);
+        o.stop(t + end + 0.1);
+      });
+      setTimeout(() => out.disconnect(), (end + 0.3) * 1000);
+    }
+  }
+}
+
+// ---------- Microphone tap detector --------------------------------------------
+const WORKLET_WRAPPER = `
+class PaperPianoTapProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.core = new TapDetectorCore(sampleRate);
+    this.port.onmessage = (e) => this.core.configure(e.data);
+  }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (ch) { const evs = this.core.processBlock(ch); for (let i = 0; i < evs.length; i++) this.port.postMessage(evs[i]); }
+    return true;
+  }
+}
+registerProcessor('pp-tap-detector', PaperPianoTapProcessor);
+`;
+
+async function createDetector(ctx) {
+  const sink = ctx.createGain(); // silent output keeps the node running
+  sink.gain.value = 0;
+  sink.connect(ctx.destination);
+  if (ctx.audioWorklet && window.AudioWorkletNode) {
+    try {
+      const src = TapDetectorCore.toString() + '\n' + WORKLET_WRAPPER;
+      const url = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
+      await ctx.audioWorklet.addModule(url);
+      const node = new AudioWorkletNode(ctx, 'pp-tap-detector', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+      node.port.onmessage = (e) => onDetectorEvent(e.data);
+      node.connect(sink);
+      return { input: node, post: (m) => node.port.postMessage(m), kind: 'AudioWorklet' };
+    } catch (e) {
+      console.warn('AudioWorklet unavailable, falling back to ScriptProcessor', e);
+    }
+  }
+  const core = new TapDetectorCore(ctx.sampleRate); // fallback: same detector on the main thread
+  const sp = ctx.createScriptProcessor(1024, 1, 1);
+  sp.onaudioprocess = (ev) => {
+    const data = ev.inputBuffer.getChannelData(0);
+    for (let i = 0; i < data.length; i += 128) core.processBlock(data.subarray(i, i + 128)).forEach(onDetectorEvent);
+  };
+  sp.connect(sink);
+  return { input: sp, post: (m) => core.configure(m), kind: 'ScriptProcessor' };
+}
+
+function onDetectorEvent(ev) {
+  if (!ev) return;
+  if (ev.type === 'level') { updateMeter(ev); return; }
+  if (ev.type !== 'onset') return;
+  const tOn = performance.now();
+  if (isEchoOnset(tOn, state.lastNoteAt, state.sound, CONFIG.ECHO_WINDOW_MS)) return; // our own note
+  state.meterFlashUntil = tOn + 140;
+  if (!state.running || state.mode !== 'mic' || state.calibrating) return;
+  if (!state.H_img2kb) { showHint('Heard a tap – calibrate first so I know where the keys are.'); return; }
+  // Wait a moment: the camera image lags the sound, so give it time to show the tap.
+  setTimeout(() => resolveMicTap(tOn, ev.strengthDb), state.syncMs);
+}
+
+function resolveMicTap(tOn, strengthDb) {
+  const res = pickTappedFinger(state.tracks.values(), tOn, performance.now(), {
+    lookbackMs: CONFIG.MIC_LOOKBACK_MS, staleMs: CONFIG.STALE_MS, minScore: CONFIG.MIC_MIN_SCORE,
+    absWeight: CONFIG.ABS_MOTION_WEIGHT, depthWeight: CONFIG.DEPTH_WEIGHT, indexOnly: state.indexOnly,
+  });
+  if (res.reason === 'ok') playKey(res.track, res.key, velocityFromStrength(strengthDb, micThresholdDb(state.sensitivity)));
+  else if (res.reason === 'no-finger-on-key') showHint('Tap heard, but no fingertip is over a key.');
+  else showHint('Tap heard, but no finger moved – another noise?');
+}
+
+function updateMeter(ev) {
+  const pct = (db) => Math.min(100, Math.max(0, ((db + 80) / 70) * 100));
+  els.meterFill.style.width = pct(ev.db) + '%';
+  els.meterTh.style.left = pct(ev.floorDb + ev.thDb) + '%';
+  els.meterFill.style.background = performance.now() < state.meterFlashUntil ? 'var(--warn)' : 'var(--accent)';
+}
+
+// ---------- Camera & microphone ---------------------------------------------------
+function waitForVideoSize() {
+  return new Promise((resolve) => {
+    const check = () => (els.video.videoWidth > 0 ? resolve() : setTimeout(check, 50));
+    check();
+  });
+}
+
+async function startCamera(deviceId) {
+  if (state.videoStream) state.videoStream.getTracks().forEach((t) => t.stop());
+  // Ask for the shape the phone is held in, and never let the browser crop the picture
+  // to fit (a cropped view can cut off the corner dots).
+  const portrait = IS_TOUCH && window.innerHeight > window.innerWidth;
+  const video = { width: { ideal: portrait ? 720 : 1280 }, height: { ideal: portrait ? 1280 : 720 },
+    frameRate: { ideal: 30 }, resizeMode: 'none' };
+  if (deviceId) video.deviceId = { exact: deviceId };
+  else video.facingMode = { ideal: 'environment' }; // phones: use the rear camera
+  const stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+  state.videoStream = stream;
+  els.video.muted = true;
+  els.video.playsInline = true;
+  els.video.srcObject = stream;
+  await els.video.play();
+  await waitForVideoSize();
+  els.canvas.width = els.video.videoWidth;
+  els.canvas.height = els.video.videoHeight;
+  els.placeholder.style.display = 'none';
+  state.lastVideoTime = -1;
+  resizeColab();
+}
+
+// The image changes shape when a phone rotates: the old calibration no longer fits.
+els.video.addEventListener('resize', () => {
+  const w = els.video.videoWidth, h = els.video.videoHeight;
+  if (!w || (w === els.canvas.width && h === els.canvas.height)) return;
+  els.canvas.width = w;
+  els.canvas.height = h;
+  if (state.running && (state.H_img2kb || state.calibrating)) {
+    state.H_img2kb = state.H_kb2img = state.keyPolys = null;
+    state.tracks.clear();
+    beginCalibration(' (The camera view rotated – turn on rotation lock, then calibrate again.)');
+  }
+  resizeColab();
+});
+
+async function startMic(deviceId) {
+  if (state.micStream) state.micStream.getTracks().forEach((t) => t.stop());
+  if (state.micSource) { try { state.micSource.disconnect(); } catch (e) { /* ignore */ } }
+  // Turn off the browser's voice processing: noise suppression would remove the very taps we want.
+  const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+  if (deviceId) audio.deviceId = { exact: deviceId };
+  const stream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
+  state.micStream = stream;
+  state.micSource = state.audioCtx.createMediaStreamSource(stream);
+  if (!state.detector) state.detector = await createDetector(state.audioCtx);
+  state.micSource.connect(state.detector.input);
+  state.detector.post({ thresholdDb: micThresholdDb(state.sensitivity) });
+  state.micOk = true;
+}
+
+function fillSelect(sel, devices, stream, label) {
+  const track = stream && stream.getTracks()[0];
+  const current = track && track.getSettings ? track.getSettings().deviceId : null;
+  sel.innerHTML = '';
+  devices.forEach((d, i) => {
+    const o = document.createElement('option');
+    o.value = d.deviceId;
+    o.textContent = d.label || label + ' ' + (i + 1);
+    if (d.deviceId === current) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.disabled = devices.length === 0;
+}
+
+async function populateDevices() {
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    fillSelect(els.cam, devs.filter((d) => d.kind === 'videoinput'), state.videoStream, 'Camera');
+    fillSelect(els.mic, devs.filter((d) => d.kind === 'audioinput'), state.micStream, 'Microphone');
+  } catch (e) { console.warn(e); }
+}
+
+let loadAttempts = 0;
+async function loadHandLandmarker() {
+  let lastErr = null;
+  // Browsers cache a failed import, so a retry (Start pressed again) needs a fresh URL.
+  const retryTag = loadAttempts++ ? '?retry=' + loadAttempts : '';
+  for (const v of CONFIG.MEDIAPIPE_VERSIONS) {
+    const base = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@' + v;
+    try {
+      const mp = await import(base + '/vision_bundle.mjs' + retryTag);
+      const fileset = await mp.FilesetResolver.forVisionTasks(base + '/wasm');
+      const make = (delegate) => mp.HandLandmarker.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: CONFIG.HAND_MODEL_URL, delegate },
+        runningMode: 'VIDEO',
+        numHands: 2,
+        minHandDetectionConfidence: 0.5,
+        minHandPresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
+      let lm;
+      try { lm = await make('GPU'); } catch (e) { console.warn('GPU delegate failed, using CPU', e); lm = await make('CPU'); }
+      state.mpVersion = v;
+      return lm;
+    } catch (e) {
+      lastErr = e;
+      console.warn('MediaPipe ' + v + ' failed to load', e);
+    }
+  }
+  throw new Error('could not load the hand-tracking model (' + ((lastErr && lastErr.message) || lastErr) +
+    '). Check your internet connection, or try disabling ad/script blockers.');
+}
+
+// ---------- Start-up ------------------------------------------------------------------
+async function start() {
+  els.start.disabled = true;
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('this page cannot use the camera here (it must be opened from an https:// address). Try Chrome or Safari.');
+    }
+    setStatus('Starting audio…');
+    if (state.audioCtx) { try { state.audioCtx.close(); } catch (e) { /* ignore */ } } // retry after an error
+    state.detector = null;
+    state.micSource = null;
+    state.audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+    await state.audioCtx.resume();
+    state.piano = new PianoSound(state.audioCtx);
+    state.piano.setVolume(+els.vol.value);
+    const samplesLoading = state.piano.loadSamples(MIDI_LO, MIDI_HI).catch(() => 0);
+    keepAwake();
+
+    setStatus('Asking for camera permission…');
+    await startCamera();
+    setStatus('Asking for microphone permission…');
+    let micMsg = '';
+    try {
+      await startMic();
+    } catch (e) {
+      console.warn(e);
+      state.mode = els.mode.value = 'cam';
+      micMsg = ' Microphone unavailable, so switched to camera-only mode.';
+    }
+    await populateDevices();
+
+    setStatus('Loading hand tracking (can take ~10 s the first time)…');
+    state.landmarker = await loadHandLandmarker();
+    const nSamples = await samplesLoading;
+    await keepAwake();
+    state.running = true;
+    els.calib.disabled = false;
+    els.start.textContent = 'Running ✓';
+    requestAnimationFrame(loop);
+    beginCalibration((nSamples ? '' : ' (Piano samples didn’t load, using a simple synth.)') + micMsg);
+  } catch (e) {
+    console.error(e);
+    setStatus(explainError(e), 'err');
+    els.start.disabled = false;
+  }
+}
+
+// ---------- Calibration ---------------------------------------------------------------
+const CORNER_NAMES = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
+
+function beginCalibration(extra) {
+  state.calibrating = true;
+  state.clicks = [];
+  state.snapped = [];
+  state.dotArea = 0;
+  els.calib.textContent = 'Calibrating…';
+  // This text stays put while you tap (so the video doesn't jump); the banner in the video shows each step.
+  setStatus('Calibrate: with your hands out of view, tap the four printed dots in the video in order 1 → 2 → 3 → 4.' + (extra || ''), 'warn');
+}
+
+function canvasPoint(e) {
+  const r = els.canvas.getBoundingClientRect();
+  return [(e.clientX - r.left) * (els.canvas.width / r.width), (e.clientY - r.top) * (els.canvas.height / r.height)];
+}
+
+/** Move a calibration tap onto the centre of the printed dot under or near it. */
+function snapToDot(p) {
+  const v = els.video, W = v.videoWidth, H = v.videoHeight;
+  const R = Math.max(16, Math.round(CONFIG.SNAP_RADIUS * Math.max(W, H)));
+  const x0 = Math.max(0, Math.round(p[0]) - R), y0 = Math.max(0, Math.round(p[1]) - R);
+  const x1 = Math.min(W, Math.round(p[0]) + R + 1), y1 = Math.min(H, Math.round(p[1]) + R + 1);
+  const w = x1 - x0, h = y1 - y0;
+  if (w < 8 || h < 8) return null;
+  try {
+    snapCanvas.width = w;
+    snapCanvas.height = h;
+    snapCtx.drawImage(v, x0, y0, w, h, 0, 0, w, h);
+    const rgba = snapCtx.getImageData(0, 0, w, h).data;
+    const gray = new Uint8Array(w * h);
+    for (let i = 0, j = 0; i < gray.length; i++, j += 4) gray[i] = (rgba[j] * 77 + rgba[j + 1] * 150 + rgba[j + 2] * 29) >> 8;
+    const dot = findDot(gray, w, h, p[0] - x0, p[1] - y0, { expectArea: state.dotArea || 0 });
+    if (!dot) return null;
+    if (!state.dotArea) state.dotArea = dot.area;
+    return [dot.x + x0, dot.y + y0];
+  } catch (e) {
+    console.warn('snap failed', e);
+    return null;
+  }
+}
+
+function finishCalibration() {
+  state.calibrating = false;
+  els.calib.textContent = 'Recalibrate';
+  const pts = state.clicks;
+  const H1 = isConvexQuad(pts) ? computeHomography(pts, LAYOUT.markers) : null;
+  const H2 = H1 ? computeHomography(LAYOUT.markers, pts) : null;
+  if (!H1 || !H2) {
+    state.clicks = [];
+    setStatus('Those taps don’t make a sensible shape – the dots must be tapped in order 1→2→3→4. Press Recalibrate.', 'err');
+    return;
+  }
+  state.H_img2kb = H1;
+  state.H_kb2img = H2;
+  state.keyPolys = LAYOUT.keys.map((k) => ({
+    key: k,
+    pts: [[k.x0, k.y0], [k.x1, k.y0], [k.x1, k.y1], [k.x0, k.y1]].map((p) => applyHomography(H2, p[0], p[1])),
+  }));
+  state.tracks.clear();
+  const nSnapped = state.snapped.filter(Boolean).length;
+  let msg = 'Calibrated ✓ ' + (nSnapped === 4 ? 'All 4 dots found. ' : nSnapped + ' of 4 dots auto-found – check the outlines. ') +
+    'The blue outlines should sit on your printed keys. ' +
+    (state.mode === 'mic' ? 'Tap keys firmly enough to make a small knock.' : 'Dip a fingertip onto a key, then lift.') +
+    ' (Tapping a key in the video also plays it.)';
+  if (IS_TOUCH && !state.wakeLockOk) msg += ' ⚠ This page can’t keep your screen on – turn Auto-Lock off while you play.';
+  setStatus(msg, 'ok');
+}
+
+els.canvas.addEventListener('click', (e) => {
+  if (!state.running) return;
+  const p = canvasPoint(e);
+  if (state.calibrating) {
+    const s = snapToDot(p);
+    state.snapped.push(!!s);
+    state.clicks.push(s || p);
+    if (state.clicks.length === 4) finishCalibration();
+  } else if (state.H_img2kb) {
+    const uv = applyHomography(state.H_img2kb, p[0], p[1]);
+    const key = keyAt(LAYOUT, uv[0], uv[1], 0);
+    if (key) playKey(null, key, 0.8);
+  }
+});
+
+// ---------- Main loop: hand tracking ---------------------------------------------
+function loop() {
+  if (!state.running) return;
+  const v = els.video;
+  if (v.readyState >= 2 && v.currentTime !== state.lastVideoTime) {
+    state.lastVideoTime = v.currentTime;
+    const now = performance.now();
+    let result = null;
+    try { result = state.landmarker.detectForVideo(v, now); } catch (e) { console.warn(e); }
+    updateHands(result, now);
+    if (state.mode === 'cam' && state.H_img2kb && !state.calibrating) cameraModeStep(now);
+    countFps(now);
+  }
+  draw(performance.now());
+  requestAnimationFrame(loop);
+}
+
+function getTrack(hand, finger) {
+  const id = hand + ':' + finger;
+  let tr = state.tracks.get(id);
+  if (!tr) { tr = { hand, finger, samples: [], cam: null }; state.tracks.set(id, tr); }
+  return tr;
+}
+
+function updateHands(result, now) {
+  const W = els.video.videoWidth, Hh = els.video.videoHeight;
+  const all = (result && result.landmarks) || [];
+  const handed = (result && (result.handedness || result.handednesses)) || [];
+  const seen = {};
+  const hands = [];
+  all.forEach((lms, i) => {
+    let id = (handed[i] && handed[i][0] && handed[i][0].categoryName) || 'Hand';
+    if (seen[id]) id += i; // two hands with the same label: keep their histories apart
+    seen[id] = true;
+    const P = lms.map((p) => ({ x: p.x * W, y: p.y * Hh, z: p.z * W }));
+    const palmIdx = [0, 5, 9, 13, 17];
+    const palm = { x: 0, y: 0 };
+    palmIdx.forEach((j) => { palm.x += P[j].x / palmIdx.length; palm.y += P[j].y / palmIdx.length; });
+    const scale = Math.max(1, Math.hypot(P[9].x - P[0].x, P[9].y - P[0].y)); // wrist → middle knuckle
+    const hand = { id, P, tips: [] };
+    FINGERS.forEach((f) => {
+      const tip = P[f.tip];
+      let key = null;
+      if (state.H_img2kb) {
+        const uv = applyHomography(state.H_img2kb, tip.x, tip.y);
+        key = keyAt(LAYOUT, uv[0], uv[1], CONFIG.KEY_TOLERANCE_MM);
+      }
+      const tr = getTrack(id, f.name);
+      tr.samples.push({
+        t: now, x: tip.x, y: tip.y,
+        rx: (tip.x - palm.x) / scale, ry: (tip.y - palm.y) / scale,
+        d: (tip.z - P[f.base].z) / scale, scale, key,
+      });
+      while (tr.samples.length && now - tr.samples[0].t > 1500) tr.samples.shift();
+      hand.tips.push({ finger: f.name, x: tip.x, y: tip.y, key });
+    });
+    hands.push(hand);
+  });
+  for (const [id, tr] of state.tracks) {
+    const last = tr.samples[tr.samples.length - 1];
+    if (!last || now - last.t > 3000) state.tracks.delete(id);
+  }
+  state.hands = hands;
+}
+
+function cameraModeStep(now) {
+  const o = {
+    windowMs: CONFIG.CAM_WINDOW_MS, stopVel: CONFIG.CAM_STOP_VEL, rearm: CONFIG.CAM_REARM,
+    rearmTimeoutMs: CONFIG.CAM_REARM_TIMEOUT_MS, refractoryMs: CONFIG.CAM_REFRACTORY_MS,
+    riseThreshold: camRiseThreshold(state.sensitivity),
+  };
+  for (const tr of state.tracks.values()) {
+    if (state.indexOnly && tr.finger !== 'index') continue;
+    const key = camTapUpdate(tr, now, o);
+    if (key) playKey(tr, key, 0.8);
+  }
+}
+
+function playKey(track, key, velocity) {
+  if (!state.piano) return;
+  const len = CONFIG.NOTE_LENGTH[state.sound] || CONFIG.NOTE_LENGTH.speaker;
+  state.piano.play(key.midi, velocity, len[0], len[1]);
+  state.lastNoteAt = performance.now();
+  state.flashes.push({ key, t: state.lastNoteAt });
+  if (state.detector) state.detector.post({ guardMs: CONFIG.SELF_GUARD_MS });
+  els.last.textContent = '♪ ' + key.name + (track ? ' · ' + track.finger : '');
+  els.last.className = '';
+}
+
+function countFps(now) {
+  state.fpsFrames++;
+  if (now - state.fpsT0 >= 1000) {
+    state.fps = Math.round((state.fpsFrames * 1000) / (now - state.fpsT0));
+    state.fpsFrames = 0;
+    state.fpsT0 = now;
+    els.info.textContent = 'tracking ' + state.fps + ' fps · ' + state.hands.length + ' hand(s)' +
+      (state.detector ? ' · mic ' + state.detector.kind : '') + (state.mpVersion ? ' · MediaPipe ' + state.mpVersion : '') +
+      (state.wakeLockOk ? ' · screen kept on' : '');
+  }
+}
+
+// ---------- Drawing the overlay --------------------------------------------------
+function polyPath(pts) {
+  g2d.beginPath();
+  pts.forEach((p, i) => (i ? g2d.lineTo(p[0], p[1]) : g2d.moveTo(p[0], p[1])));
+  g2d.closePath();
+}
+
+function draw(now) {
+  const W = els.canvas.width, Hh = els.canvas.height;
+  if (!W) return;
+  const r = els.canvas.getBoundingClientRect();
+  const u = Math.max(1, W / Math.max(1, r.width)); // canvas pixels per screen pixel: keeps marks readable on phones
+  g2d.clearRect(0, 0, W, Hh);
+  state.flashes = state.flashes.filter((f) => now - f.t < 350);
+
+  if (state.keyPolys) {
+    for (const pass of [false, true]) { // white keys, then black keys on top
+      for (const kp of state.keyPolys) {
+        if (kp.key.black !== pass) continue;
+        polyPath(kp.pts);
+        const fl = state.flashes.find((f) => f.key.midi === kp.key.midi);
+        if (fl) {
+          g2d.fillStyle = 'rgba(90, 209, 154, ' + (0.75 * (1 - (now - fl.t) / 350)).toFixed(3) + ')';
+          g2d.fill();
+        }
+        g2d.lineWidth = 1.2 * u;
+        g2d.strokeStyle = pass ? 'rgba(200, 120, 255, 0.85)' : 'rgba(80, 170, 255, 0.85)';
+        g2d.stroke();
+      }
+    }
+  }
+
+  for (const hand of state.hands) {
+    for (const t of hand.tips) {
+      g2d.beginPath();
+      g2d.arc(t.x, t.y, 4 * u, 0, Math.PI * 2);
+      g2d.fillStyle = t.key ? 'rgba(90, 209, 154, 0.95)' : 'rgba(170, 170, 170, 0.8)';
+      g2d.fill();
+      g2d.lineWidth = 1.2 * u;
+      g2d.strokeStyle = 'white';
+      g2d.stroke();
+      if (t.key && t.finger === 'index') {
+        g2d.font = 'bold ' + Math.round(12 * u) + 'px system-ui, sans-serif';
+        g2d.lineWidth = 3 * u;
+        g2d.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+        g2d.strokeText(t.key.name, t.x + 7 * u, t.y - 7 * u);
+        g2d.fillStyle = 'white';
+        g2d.fillText(t.key.name, t.x + 7 * u, t.y - 7 * u);
+      }
+    }
+  }
+
+  if (state.calibrating) {
+    state.clicks.forEach((p, i) => {
+      g2d.beginPath();
+      g2d.arc(p[0], p[1], 6 * u, 0, Math.PI * 2);
+      g2d.lineWidth = 2.5 * u;
+      g2d.strokeStyle = state.snapped[i] ? 'rgba(90, 209, 154, 0.95)' : 'rgba(242, 184, 75, 0.95)';
+      g2d.stroke();
+      g2d.font = 'bold ' + Math.round(14 * u) + 'px system-ui, sans-serif';
+      g2d.fillStyle = 'white';
+      g2d.fillText(String(i + 1), p[0] + 9 * u, p[1] - 9 * u);
+    });
+    const n = state.clicks.length, lastOk = n ? state.snapped[n - 1] : null;
+    const prefix = lastOk === true ? '✓ Now tap' : lastOk === false ? 'No dot found (used your tap). Tap' : 'Tap';
+    g2d.font = 'bold ' + Math.round(15 * u) + 'px system-ui, sans-serif';
+    g2d.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    g2d.fillRect(0, 0, W, 28 * u);
+    g2d.fillStyle = '#f2b84b';
+    g2d.fillText(prefix + ' dot ' + (n + 1) + ' (' + CORNER_NAMES[n] + ')', 8 * u, 20 * u);
+  }
+}
+
+// ---------- Controls ------------------------------------------------------------------
+els.start.addEventListener('click', start);
+els.calib.addEventListener('click', () => beginCalibration(''));
+els.sound.addEventListener('change', () => { state.sound = els.sound.value; });
+els.mode.addEventListener('change', () => {
+  state.mode = els.mode.value;
+  for (const tr of state.tracks.values()) tr.cam = null;
+  if (state.mode === 'mic' && !state.micOk) showHint('No microphone – mic mode cannot work.');
+});
+els.fingers.addEventListener('change', () => { state.indexOnly = els.fingers.value === 'index'; });
+els.sens.addEventListener('input', () => {
+  state.sensitivity = +els.sens.value;
+  els.sensV.textContent = els.sens.value;
+  if (state.detector) state.detector.post({ thresholdDb: micThresholdDb(state.sensitivity) });
+});
+els.sync.addEventListener('input', () => {
+  state.syncMs = +els.sync.value;
+  els.syncV.textContent = els.sync.value + ' ms';
+});
+els.vol.addEventListener('input', () => { if (state.piano) state.piano.setVolume(+els.vol.value); });
+els.cam.addEventListener('change', async () => {
+  try {
+    await startCamera(els.cam.value);
+    state.H_img2kb = state.H_kb2img = state.keyPolys = null;
+    state.tracks.clear();
+    if (state.running) beginCalibration(' (New camera, so please recalibrate.)');
+  } catch (e) { setStatus(explainError(e), 'err'); }
+});
+els.mic.addEventListener('change', async () => {
+  try {
+    await startMic(els.mic.value);
+    showHint('Microphone switched.');
+  } catch (e) { setStatus(explainError(e), 'err'); }
+});
+[els.settings, els.help].forEach((d) => d.addEventListener('toggle', resizeColab));
+window.addEventListener('resize', resizeColab);
+
+window.paperPiano = { config: CONFIG, state, layout: LAYOUT }; // handy for tinkering in the console
+resizeColab();
+
+})();
+</script>
+</div>
+</body></html>
