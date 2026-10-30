@@ -77,6 +77,11 @@
         <option value="mic" selected>Mic tap + camera (recommended)</option>
         <option value="cam">Camera only (experimental)</option>
       </select></label>
+    <label title="Chords: every finger that presses at the same moment plays. One note: only the finger that moved most.">Notes
+      <select id="pp-notes">
+        <option value="chords" selected>Chords (several fingers)</option>
+        <option value="single">One note per tap</option>
+      </select></label>
     <label>Fingers
       <select id="pp-fingers">
         <option value="all" selected>All fingers</option>
@@ -106,7 +111,8 @@
   <summary>Tips</summary>
   <ul>
     <li><b>Play:</b> tap a key firmly enough to make a small knock – the mic hears <i>when</i>, the camera sees <i>where</i>.</li>
-    <li><b>Wrong key?</b> Raise the sync delay in Settings, or choose “Index fingers only”.</li>
+    <li><b>Chords:</b> press all the fingers at the same moment. <b>Extra notes from neighbouring fingers?</b> Lift the fingers you're not using, or choose “One note per tap”.</li>
+    <li><b>Wrong key?</b> Keep the phone directly above the keys, raise the sync delay in Settings, or choose “Index fingers only”.</li>
     <li><b>Taps missed?</b> Raise sensitivity (the meter flashes orange when a tap is heard). <b>Random notes?</b> Lower it.</li>
     <li><b>Phone:</b> turn on rotation lock, keep the phone and paper still, and turn the volume up (iPhone: check the silent switch). Wired earphones + “Headphones” give longer notes.</li>
   </ul>
@@ -293,6 +299,81 @@ function motionScore(samples, t0, t1, absWeight, depthWeight) {
   return rel + absWeight * abs + depthWeight * range(series((s) => s.d));
 }
 
+/** Press features of one fingertip around a tap heard at tOn:
+ *  rel     – movement relative to the palm (hand-sizes)
+ *  abs     – whole-hand movement
+ *  descent – how far the tip went DOWN (away from the camera, vs. its knuckle) into the
+ *            deepest point near the tap; lifting a finger doesn't count
+ *  key     – the key under the tip at that deepest point (the moment of the press) */
+function pressFeatures(samples, t0, t1, tOn) {
+  const w = samples.filter((s) => s.t >= t0 && s.t <= t1);
+  const n = w.length;
+  if (n < 2) return null;
+  const smooth = (get) => w.map((_, i) => {
+    if (n < 5) return get(w[i]);
+    const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
+    let sum = 0;
+    for (let k = a; k <= b; k++) sum += get(w[k]);
+    return sum / (b - a + 1);
+  });
+  const range = (arr) => Math.max.apply(null, arr) - Math.min.apply(null, arr);
+  const scale = w.reduce((acc, s) => acc + s.scale, 0) / n;
+  const rx = smooth((s) => s.rx), ry = smooth((s) => s.ry), d = smooth((s) => s.d);
+  let iDeep = -1;
+  for (let i = 0; i < n; i++) if (w[i].t >= tOn - 80 && (iDeep < 0 || d[i] > d[iDeep])) iDeep = i;
+  if (iDeep < 0) iDeep = n - 1;
+  let dMin = Infinity;
+  for (let i = 0; i <= iDeep; i++) if (d[i] < dMin) dMin = d[i];
+  return {
+    rel: Math.hypot(range(rx), range(ry)),
+    abs: Math.hypot(range(smooth((s) => s.x)), range(smooth((s) => s.y))) / scale,
+    descent: Math.max(0, d[iDeep] - dMin),
+    key: w[iDeep].key || w[n - 1].key,
+  };
+}
+
+/** Mic mode, chord-aware: which fingertips pressed a key when the tap was heard?
+ *  Each finger is compared with the quietest finger on the same hand, so fingers that
+ *  are dragged along by a neighbour don't count. Returns
+ *  { reason: 'ok' | 'no-finger-on-key' | 'no-movement', hits: [{track, key, score}], track, key, score }. */
+function pickTappedFingers(tracks, tOn, now, o) {
+  const cands = [], handMin = {}, handCount = {};
+  for (const tr of tracks) {
+    if (o.indexOnly && tr.finger !== 'index') continue;
+    const last = tr.samples[tr.samples.length - 1];
+    if (!last || now - last.t > o.staleMs) continue;
+    const f = pressFeatures(tr.samples, tOn - o.lookbackMs, now, tOn);
+    if (!f) continue;
+    const score = f.rel + o.absWeight * f.abs + o.depthWeight * f.descent;
+    cands.push({ track: tr, key: f.key, score });
+    const h = tr.hand || '?';
+    handMin[h] = Math.min(handMin[h] === undefined ? Infinity : handMin[h], score);
+    handCount[h] = (handCount[h] || 0) + 1;
+  }
+  for (const c of cands) {
+    const h = c.track.hand || '?';
+    const base = handCount[h] >= 4 ? (o.baselineWeight === undefined ? 0.7 : o.baselineWeight) * handMin[h] : 0;
+    c.score = c.score - base;
+  }
+  const keyed = cands.filter((c) => c.key).sort((a, b) => b.score - a.score);
+  if (!keyed.length) return { reason: 'no-finger-on-key', hits: [], track: null, key: null, score: 0 };
+  const best = keyed[0];
+  if (best.score < o.minScore) return { reason: 'no-movement', hits: [], track: best.track, key: best.key, score: best.score };
+  let hits = [best];
+  if (o.chords) {
+    const cut = Math.max(o.minScore, (o.chordRatio || 0.5) * best.score);
+    const seen = new Set();
+    hits = [];
+    for (const c of keyed) {
+      if (c.score < cut || seen.has(c.key.midi)) continue;
+      seen.add(c.key.midi);
+      hits.push(c);
+      if (hits.length >= (o.maxNotes || 5)) break;
+    }
+  }
+  return { reason: 'ok', hits, track: best.track, key: best.key, score: best.score };
+}
+
 /** Mic mode: a tap was heard at time tOn — which fingertip (over a key) moved most?
  *  Returns { reason: 'ok' | 'no-finger-on-key' | 'no-movement', track, key, score }. */
 function pickTappedFinger(tracks, tOn, now, o) {
@@ -428,7 +509,7 @@ if (typeof module !== 'undefined' && module.exports) {
     solveLinearSystem, computeHomography, applyHomography, isConvexQuad, keyAt, TapDetectorCore,
     motionScore, pickTappedFinger, camTapUpdate, micThresholdDb, camRiseThreshold,
     velocityFromStrength, salamanderName, sampleNotesFor, nearestSample,
-    otsuThreshold, findDot, isEchoOnset,
+    otsuThreshold, findDot, isEchoOnset, pressFeatures, pickTappedFingers,
   };
 }
 
@@ -449,7 +530,10 @@ const CONFIG = {
   MIC_MIN_SCORE: 0.10,      // minimum finger movement (in hand-sizes) to accept a tap; lower if real taps are rejected
   ABS_MOTION_WEIGHT: 0.5,   // weight of whole-hand movement vs. finger-only movement
   DEPTH_WEIGHT: 0.8,        // weight of the fingertip's estimated depth change (noisier, so < 1)
-  STALE_MS: 250,            // ignore fingers not seen for this long
+  STALE_MS: 250,
+  CHORD_RATIO: 0.5,         // chords: a finger must move at least this fraction as much as the strongest one
+  MAX_NOTES: 5,             // most notes one tap can play
+  BASELINE_WEIGHT: 0.7,     // how much of the quietest finger's movement to subtract (ignores fingers dragged along)            // ignore fingers not seen for this long
   SELF_GUARD_MS: 120,       // after a note, briefly make the mic harder to trigger
   ECHO_WINDOW_MS: 250,      // speaker mode: ignore taps heard this soon after a note (it's our own sound)
   SNAP_RADIUS: 0.05,        // calibration: search this fraction of the image around a tap for the printed dot
@@ -472,7 +556,7 @@ const FINGERS = [
 const $ = (id) => document.getElementById(id);
 const els = {
   root: $('pp-app'), start: $('pp-start'), calib: $('pp-calib'), sound: $('pp-sound'), settings: $('pp-settings'),
-  help: $('pp-help'), cam: $('pp-cam'), mic: $('pp-mic'), mode: $('pp-mode'), fingers: $('pp-fingers'),
+  help: $('pp-help'), cam: $('pp-cam'), mic: $('pp-mic'), mode: $('pp-mode'), fingers: $('pp-fingers'), notes: $('pp-notes'),
   sens: $('pp-sens'), sensV: $('pp-sens-v'), sync: $('pp-sync'), syncV: $('pp-sync-v'), vol: $('pp-vol'),
   video: $('pp-video'), canvas: $('pp-overlay'), placeholder: $('pp-placeholder'), status: $('pp-status'),
   meterFill: $('pp-meter-fill'), meterTh: $('pp-meter-th'), last: $('pp-last'), info: $('pp-info'), range: $('pp-range'),
@@ -487,7 +571,7 @@ const state = {
   calibrating: false, clicks: [], snapped: [], dotArea: 0, H_img2kb: null, H_kb2img: null, keyPolys: null,
   tracks: new Map(), hands: [], flashes: [], lastVideoTime: -1, lastNoteAt: -1e9,
   fps: 0, fpsFrames: 0, fpsT0: 0, meterFlashUntil: 0,
-  mode: 'mic', indexOnly: false, sound: els.sound.value, sensitivity: +els.sens.value, syncMs: +els.sync.value,
+  mode: 'mic', indexOnly: false, chords: true, sound: els.sound.value, sensitivity: +els.sens.value, syncMs: +els.sync.value,
 };
 
 const MIDI_LO = Math.min.apply(null, LAYOUT.keys.map((k) => k.midi));
@@ -656,11 +740,12 @@ function onDetectorEvent(ev) {
 }
 
 function resolveMicTap(tOn, strengthDb) {
-  const res = pickTappedFinger(state.tracks.values(), tOn, performance.now(), {
+  const res = pickTappedFingers(state.tracks.values(), tOn, performance.now(), {
     lookbackMs: CONFIG.MIC_LOOKBACK_MS, staleMs: CONFIG.STALE_MS, minScore: CONFIG.MIC_MIN_SCORE,
     absWeight: CONFIG.ABS_MOTION_WEIGHT, depthWeight: CONFIG.DEPTH_WEIGHT, indexOnly: state.indexOnly,
+    chords: state.chords, chordRatio: CONFIG.CHORD_RATIO, maxNotes: CONFIG.MAX_NOTES, baselineWeight: CONFIG.BASELINE_WEIGHT,
   });
-  if (res.reason === 'ok') playKey(res.track, res.key, velocityFromStrength(strengthDb, micThresholdDb(state.sensitivity)));
+  if (res.reason === 'ok') playKeys(res.hits, velocityFromStrength(strengthDb, micThresholdDb(state.sensitivity)));
   else if (res.reason === 'no-finger-on-key') showHint('Tap heard, but no fingertip is over a key.');
   else showHint('Tap heard, but no finger moved – another noise?');
 }
@@ -842,7 +927,7 @@ function beginCalibration(extra) {
   state.dotArea = 0;
   els.calib.textContent = 'Calibrating…';
   // This text stays put while you tap (so the video doesn't jump); the banner in the video shows each step.
-  setStatus('Calibrate: with your hands out of view, tap the four printed dots in the video in order 1 → 2 → 3 → 4.' + (extra || ''), 'warn');
+  setStatus('Calibrate: on this SCREEN (not the paper), tap the four black dots you can see in the camera picture, in order 1 → 2 → 3 → 4. Keep your hands off the paper.' + (extra || ''), 'warn');
 }
 
 function canvasPoint(e) {
@@ -995,6 +1080,11 @@ function cameraModeStep(now) {
   }
 }
 
+function playKeys(hits, velocity) {
+  hits.forEach((h) => playKey(h.track, h.key, velocity));
+  if (hits.length > 1) els.last.textContent = '♪ ' + hits.map((h) => h.key.name).join(' + ');
+}
+
 function playKey(track, key, velocity) {
   if (!state.piano) return;
   const len = CONFIG.NOTE_LENGTH[state.sound] || CONFIG.NOTE_LENGTH.speaker;
@@ -1087,7 +1177,7 @@ function draw(now) {
     g2d.fillStyle = 'rgba(0, 0, 0, 0.6)';
     g2d.fillRect(0, 0, W, 28 * u);
     g2d.fillStyle = '#f2b84b';
-    g2d.fillText(prefix + ' dot ' + (n + 1) + ' (' + CORNER_NAMES[n] + ')', 8 * u, 20 * u);
+    g2d.fillText(prefix + ' dot ' + (n + 1) + ' (' + CORNER_NAMES[n] + ') here on the screen', 8 * u, 20 * u);
   }
 }
 
@@ -1101,6 +1191,7 @@ els.mode.addEventListener('change', () => {
   if (state.mode === 'mic' && !state.micOk) showHint('No microphone – mic mode cannot work.');
 });
 els.fingers.addEventListener('change', () => { state.indexOnly = els.fingers.value === 'index'; });
+els.notes.addEventListener('change', () => { state.chords = els.notes.value === 'chords'; });
 els.sens.addEventListener('input', () => {
   state.sensitivity = +els.sens.value;
   els.sensV.textContent = els.sens.value;
